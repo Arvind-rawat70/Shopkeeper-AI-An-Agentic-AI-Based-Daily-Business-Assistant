@@ -1,5 +1,4 @@
 ﻿# Shopkeeper-AI-An-Agentic-AI-Based-Daily-Business-Assistant
-# Shopkeeper-AI-An-Agentic-AI-Based-Daily-Business-Assistant
 
 ==============================================================
                         PROJECT REPORT
