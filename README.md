@@ -184,3 +184,13 @@ Flow: `Query → Intent → Database Data → Analysis → Recommendation → Fi
 ## 💡 What Makes This Different From a Chatbot
 
 It doesn't just generate text — it detects intent, routes to the right agent, pulls real data, runs analysis (including ML predictions where relevant), and returns a grounded, actionable recommendation.
+
+Current Status
+
+Phase 1 is largely completed, with database integration and tool testing still being finalized.
+
+Your current flow is:
+
+User Query → Groq LLM → LangGraph → Database Tool → MySQL → Real Business Data → AI Response
+
+The next major step is to turn these tools into specialized agents such as the Inventory Agent, Sales Agent, Purchase Recommendation Agent, and Business Analyst Agent.
