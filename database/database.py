@@ -35,11 +35,3 @@ try:
 except Exception as e:
     print(f"Database connection failed: {e}")
 
-
-# Read products
-print("\nProducts:")
-with engine.connect() as connection:
-    result = connection.execute(text("SELECT * FROM products"))
-
-    for row in result:
-        print(row)
