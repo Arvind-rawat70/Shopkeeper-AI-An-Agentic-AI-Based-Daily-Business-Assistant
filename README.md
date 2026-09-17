@@ -522,3 +522,105 @@ This is what makes the final product genuinely robust and production-ready.
 12. Demand Prediction
 13. Reorder Calculation
 14. Feed into Purchase Agent
+
+# Shopkeeper AI — ML Demand Forecasting Module
+
+## Status: Model trained and validated ✅
+
+This README documents the ML workflow completed so far for the Purchase Agent's demand forecasting component, part of the larger Shopkeeper AI project.
+
+---
+
+## Goal
+
+Predict weekly product demand from historical sales data, to feed into the Purchase Agent's reorder recommendation:
+
+```
+Recommended Order = Predicted Demand + Safety Stock − Current Stock
+```
+
+---
+
+## Dataset
+
+- **Source:** Kaggle M5 Forecasting — Accuracy competition
+- **Files used:** `sales_train_validation.csv`, `calendar.csv`, `sell_prices.csv`
+- **Subset used:** 80 items from store `CA_1`
+- Loaded locally from a `data/` folder (see notebook for path setup)
+
+---
+
+## What's Been Done
+
+### 1. Data Loading & Merging
+- Loaded raw M5 CSVs (sales, calendar, prices)
+- Selected a random sample of 80 items from one store (initial attempt with only 3 items produced an unusable model — see "Key Findings" below)
+- Melted the wide daily format (`d_1 ... d_1913`) into long format: one row per `(item_id, date, sales)`
+- Merged in real calendar dates and weekly price data
+
+### 2. Data Cleaning
+- **Found and fixed a real data quality issue:** merging sales with `sell_prices` produced rows with `sell_price = 0` for dates before an item was actually introduced in a store
+- Confirmed via `groupby` check that 100% of these zero-price rows also had `sales = 0` — proof they were "not yet on sale" placeholder rows, not real transactions
+- Dropped all such rows before training
+- Verified date continuity per item (no missing calendar days within each item's active sales window)
+
+### 3. Exploratory Data Analysis (EDA)
+- Checked structure, missing values, and cardinality of all columns
+- Confirmed a realistic **weekend sales spike** (Saturday highest, matching real retail behavior) — validated that the cleaned data reflects genuine demand patterns
+- Checked target (`sales`) distribution and outliers — no destructive outliers found
+- Plotted total daily sales trend and per-item series to confirm distinct, sensible patterns per product
+
+### 4. Feature Engineering
+Built on **weekly aggregated** data (see "Key Findings" for why):
+- **Lag features:** sales from 1, 2, 4, and 8 weeks ago
+- **Rolling statistics:** 4-week and 8-week rolling mean/std (computed with `shift(1)` before `.rolling()` to prevent data leakage — no row ever sees its own future value)
+- **Calendar features:** month, week of year, year
+- **Price features:** price change, previous period's price
+
+### 5. Train/Test Split
+- **Time-based split** (80% earliest weeks = train, most recent 20% = test)
+- Deliberately avoided random shuffling, which would leak future information into training
+
+### 6. Model Training & Comparison
+Built a `scikit-learn` `Pipeline` with a `ColumnTransformer` (one-hot encoding `item_id`, passthrough for numeric features) wrapping each model, so preprocessing is fit only on training data.
+
+Compared 5 models:
+
+| Model | MAE | RMSE | R² |
+|---|---|---|---|
+| **Ridge (best)** | **3.423** | **5.956** | **0.824** |
+| Linear Regression | 3.439 | 5.981 | 0.822 |
+| Gradient Boosting | 3.439 | 6.211 | 0.808 |
+| Random Forest | 3.494 | 6.227 | 0.807 |
+| XGBoost | 3.508 | 6.301 | 0.803 |
+
+**Ridge Regression selected as the best model** — saved with `joblib` to `models/demand_forecast_model.joblib`.
+
+---
+
+## Key Findings
+
+1. **Item count matters more than model choice.** An early version trained on just 3 items with daily granularity produced an unusable model (R² ≈ 0.004 — barely better than predicting the mean every time). Scaling to 80 items fixed this.
+
+2. **Weekly aggregation was necessary.** Daily sales for a single low-volume item were mostly 0s and 1s — too sparse and noisy for regression models to learn from. Aggregating to weekly totals gave the target real variance (mean ≈ 2.7, std ≈ 2.5) and better matched the actual business decision (shopkeepers reorder weekly, not daily).
+
+3. **Always compare against a baseline.** Comparing model MAE against a "predict the mean" baseline caught the early failed model before wasting time on hyperparameter tuning — a low MAE alone was misleading given how low-variance the raw daily data was.
+
+4. **Simpler models won.** Ridge/Linear Regression outperformed Random Forest and XGBoost. All 5 models clustered closely (R² 0.80–0.82), suggesting the feature engineering — not model complexity — is doing most of the work, and the demand-to-feature relationship is largely linear at the weekly level.
+
+---
+
+## Next Steps
+
+- [ ] Light hyperparameter tuning on Ridge (`alpha` search via `TimeSeriesSplit` cross-validation)
+- [ ] Connect the saved model to the MySQL-backed Purchase Agent for live predictions
+- [ ] Wire predicted demand into the reorder calculation
+- [ ] Replace the M5-derived training data with real shop sales data once the database accumulates enough history (Phase 3 of the original roadmap)
+
+---
+
+## Files
+
+- `ml_updated_local_data.ipynb` — full pipeline notebook (load → clean → EDA → feature engineer → train → compare → save)
+- `ml_pipeline.py` — same pipeline as a modular, runnable Python script
+- `models/demand_forecast_model.joblib` — saved best model (Ridge)
