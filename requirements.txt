@@ -24,4 +24,4 @@ matplotlib
 jupyter
 ipykernel
 
-langsmith
+# removed: langsmith
