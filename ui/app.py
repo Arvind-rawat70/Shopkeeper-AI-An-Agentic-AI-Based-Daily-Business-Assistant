@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from pathlib import Path
 from datetime import date, timedelta
 
 import pandas as pd
@@ -14,7 +15,9 @@ from langchain_groq import ChatGroq
 import sqlglot
 from sqlglot import exp
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / "database" / ".env")
 
 # -------------------------------------------------------------------
 # Configuration
@@ -26,13 +29,21 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+raw_host = os.getenv("DB_HOST", "localhost").strip()
+raw_port = os.getenv("DB_PORT", "3306").strip()
+if ":" in raw_host and raw_host.count(":") == 1:
+    candidate_host, candidate_port = raw_host.rsplit(":", 1)
+    if candidate_port.isdigit():
+        raw_host = candidate_host
+        raw_port = candidate_port
+
 DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "3306")
+DB_HOST = raw_host or "localhost"
+DB_PORT = raw_port or "3306"
 DB_NAME = os.getenv("DB_NAME", "shopkeeper_ai")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.getenv("GROQ_MODEL",  "openai/gpt-oss-120b")
 API_BASE_URL = os.getenv("SHOPKEEPER_API_URL", "http://127.0.0.1:8000")
 
 ALLOWED_TABLES = {"products", "suppliers", "sales", "expenses"}
@@ -45,20 +56,24 @@ MAX_CHAT_ROWS = 200
 @st.cache_resource
 def get_engine():
     """Create one reusable SQLAlchemy connection pool."""
-    if not DB_USER or not DB_PASSWORD:
+    if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
         raise ValueError(
-            "Set DB_USER and DB_PASSWORD in your .env file before starting Streamlit."
+            "Set DB_USER, DB_PASSWORD, DB_HOST, and DB_NAME in your project .env file before starting Streamlit."
         )
 
-    url = URL.create(
-        drivername="mysql+pymysql",
-        username=DB_USER,
-        password=DB_PASSWORD,
-        host=DB_HOST,
-        port=int(DB_PORT),
-        database=DB_NAME,
-    )
-    return create_engine(url, pool_pre_ping=True, pool_recycle=1800)
+    try:
+        from database.database import engine as shared_engine
+        return shared_engine
+    except Exception:
+        url = URL.create(
+            drivername="mysql+pymysql",
+            username=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=int(DB_PORT),
+            database=DB_NAME,
+        )
+        return create_engine(url, pool_pre_ping=True, pool_recycle=1800)
 
 
 @st.cache_resource
@@ -211,6 +226,20 @@ Sample rows (at most 20): {json.dumps(sample, default=str, ensure_ascii=False)}
 # -------------------------------------------------------------------
 # Page header and sidebar
 # -------------------------------------------------------------------
+if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
+    st.warning("Database is not configured yet. Add your MySQL connection details to the project .env file.")
+    st.code(
+        "DB_USER=your_db_user\n"
+        "DB_PASSWORD=your_db_password\n"
+        "DB_HOST=localhost\n"
+        "DB_PORT=3306\n"
+        "DB_NAME=shopkeeper_ai\n"
+        "GROQ_API_KEY=your_groq_key\n"
+        "GROQ_MODEL=openai/gpt-oss-120b",
+        language="dotenv",
+    )
+    st.stop()
+
 st.title("🛍️ Shopkeeper AI")
 st.caption("Your intelligent retail business dashboard — inventory, sales, expenses and demand forecasting.")
 
@@ -248,6 +277,16 @@ with st.sidebar:
                     "data": result_df.copy(),
                 }
             )
+        except Exception as exc:
+            st.session_state.chat_history.append(
+                {
+                    "role": "assistant",
+                    "content": f"I couldn't connect to the database or LLM: {exc}",
+                    "sql": None,
+                    "data": None,
+                }
+            )
+            st.error(str(exc))
         except Exception as exc:
             st.session_state.chat_history.append(
                 {

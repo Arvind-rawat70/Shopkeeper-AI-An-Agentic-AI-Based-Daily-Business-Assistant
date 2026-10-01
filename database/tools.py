@@ -8,17 +8,29 @@ and return plain Python dicts/lists. LangGraph agents will later call
 these as tools; the agent decides *when* to call them, not this file.
 """
 
+from pathlib import Path
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
 from urllib.parse import quote_plus
 from datetime import date
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / "database" / ".env")
+
+raw_host = os.getenv("DB_HOST", "localhost").strip()
+raw_port = os.getenv("DB_PORT", "3306").strip()
+if ":" in raw_host and raw_host.count(":") == 1:
+    candidate_host, candidate_port = raw_host.rsplit(":", 1)
+    if candidate_port.isdigit():
+        raw_host = candidate_host
+        raw_port = candidate_port
 
 db_user = os.getenv("DB_USER")
 db_password = os.getenv("DB_PASSWORD")
-db_host = os.getenv("DB_HOST")
+db_host = raw_host or "localhost"
+db_port = raw_port or "3306"
 db_name = os.getenv("DB_NAME")
 
 missing = [k for k in ("DB_USER", "DB_PASSWORD", "DB_HOST", "DB_NAME")
@@ -33,7 +45,7 @@ db_password_quoted = quote_plus(db_password)
 
 database_url = (
     f"mysql+pymysql://{db_user}:{db_password_quoted}"
-    f"@{db_host}/{db_name}"
+    f"@{db_host}:{db_port}/{db_name}"
 )
 
 engine = create_engine(database_url, pool_pre_ping=True)
