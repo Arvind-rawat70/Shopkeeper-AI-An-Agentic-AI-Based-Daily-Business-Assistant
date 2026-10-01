@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import date, timedelta
 
 import pandas as pd
+import altair as alt
 import requests
 import streamlit as st
 from dotenv import load_dotenv
@@ -387,21 +388,58 @@ with tab_overview:
     with left:
         st.subheader("Sales trend")
         try:
-            trend = read_df(
-                f"""
-                SELECT DATE(s.sale_date) AS sale_day,
+            years_df = read_df("SELECT DISTINCT YEAR(sale_date) AS year_value FROM sales ORDER BY year_value DESC")
+            year_options = [int(y) for y in years_df["year_value"].tolist()] if not years_df.empty else [date.today().year]
+            selected_year = st.selectbox("Select year", year_options, index=0, key="sales_year_filter")
+
+            month_options = [
+                "All months", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+            ]
+            selected_month = st.selectbox("Select month", month_options, index=0, key="sales_month_filter")
+
+            query = """
+                SELECT DATE_FORMAT(s.sale_date, '%Y-%m') AS month_key,
+                       DATE_FORMAT(s.sale_date, '%b') AS month_name,
                        SUM(s.quantity * s.sale_price) AS revenue
                 FROM sales s
-                WHERE {sales_where}
-                GROUP BY DATE(s.sale_date)
-                ORDER BY sale_day
-                """
-            )
+                WHERE YEAR(s.sale_date) = :year
+            """
+            params = {"year": selected_year}
+
+            if selected_month != "All months":
+                query += " AND MONTH(s.sale_date) = :month_number "
+                params["month_number"] = month_options.index(selected_month)
+
+            query += """
+                GROUP BY DATE_FORMAT(s.sale_date, '%Y-%m'), DATE_FORMAT(s.sale_date, '%b')
+                ORDER BY DATE_FORMAT(s.sale_date, '%Y-%m')
+            """
+
+            trend = read_df(query, params)
             if not trend.empty:
-                trend["sale_day"] = pd.to_datetime(trend["sale_day"])
-                st.line_chart(trend.set_index("sale_day")["revenue"])
+                month_order = [
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                ]
+                trend["month_order"] = trend["month_name"].map({m: i for i, m in enumerate(month_order)})
+                trend = trend.sort_values("month_order").drop(columns=["month_order"])
+
+                chart = alt.Chart(trend).mark_line(point=True, strokeWidth=3).encode(
+                    x=alt.X("month_name:N", title="Month", sort=month_order),
+                    y=alt.Y("revenue:Q", title="Sales Revenue (₹)"),
+                    tooltip=[
+                        alt.Tooltip("month_name:N", title="Month"),
+                        alt.Tooltip("revenue:Q", title="Revenue (₹)", format=",.2f")
+                    ],
+                ).properties(
+                    title=f"Monthly Sales Revenue - {selected_year}",
+                    height=300,
+                    width="container",
+                ).configure_axis(labelAngle=0)
+                st.altair_chart(chart, use_container_width=True, theme="streamlit")
             else:
-                st.info("No sales found for this period.")
+                st.info(f"No sales found for {selected_month.lower()} in {selected_year}.")
         except Exception as exc:
             st.warning(f"Could not load the sales trend: {exc}")
 
@@ -462,6 +500,26 @@ with tab_sales:
     sales_col, expenses_col = st.columns(2)
 
     with sales_col:
+        st.subheader("Sales revenue trend")
+        try:
+            sales_chart = read_df(
+                f"""
+                SELECT DATE(s.sale_date) AS sale_day,
+                       SUM(s.quantity * s.sale_price) AS revenue
+                FROM sales s
+                WHERE {sales_where}
+                GROUP BY DATE(s.sale_date)
+                ORDER BY sale_day
+                """
+            )
+            if not sales_chart.empty:
+                sales_chart["sale_day"] = pd.to_datetime(sales_chart["sale_day"])
+                st.line_chart(sales_chart.set_index("sale_day")["revenue"])
+            else:
+                st.info("No sales data available for the selected period.")
+        except Exception as exc:
+            st.warning(f"Could not render the sales chart: {exc}")
+
         st.subheader("Recent sales")
         try:
             recent_sales = read_df(
