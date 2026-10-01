@@ -14,3 +14,4 @@ Thumbs.db
 
 # Keep Kaggle dataset local
 data/
+database/agent_output.log
