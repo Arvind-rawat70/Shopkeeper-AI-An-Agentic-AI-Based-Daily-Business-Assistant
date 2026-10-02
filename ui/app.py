@@ -392,11 +392,18 @@ with tab_overview:
             year_options = [int(y) for y in years_df["year_value"].tolist()] if not years_df.empty else [date.today().year]
             selected_year = st.selectbox("Select year", year_options, index=0, key="sales_year_filter")
 
-            month_options = [
-                "All months", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            month_order = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
             ]
-            selected_month = st.selectbox("Select month", month_options, index=0, key="sales_month_filter")
+            month_options = ["All months", *month_order]
+            selected_month = st.radio(
+                "Select month",
+                options=month_options,
+                index=0,
+                horizontal=True,
+                key="sales_month_filter",
+            )
 
             query = """
                 SELECT DATE_FORMAT(s.sale_date, '%Y-%m') AS month_key,
@@ -409,7 +416,7 @@ with tab_overview:
 
             if selected_month != "All months":
                 query += " AND MONTH(s.sale_date) = :month_number "
-                params["month_number"] = month_options.index(selected_month)
+                params["month_number"] = month_order.index(selected_month) + 1
 
             query += """
                 GROUP BY DATE_FORMAT(s.sale_date, '%Y-%m'), DATE_FORMAT(s.sale_date, '%b')
@@ -418,26 +425,67 @@ with tab_overview:
 
             trend = read_df(query, params)
             if not trend.empty:
-                month_order = [
-                    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-                ]
-                trend["month_order"] = trend["month_name"].map({m: i for i, m in enumerate(month_order)})
-                trend = trend.sort_values("month_order").drop(columns=["month_order"])
+                trend["month_name"] = pd.Categorical(trend["month_name"], categories=month_order, ordered=True)
+                trend = trend.sort_values("month_name").dropna(subset=["month_name"]).reset_index(drop=True)
 
-                chart = alt.Chart(trend).mark_line(point=True, strokeWidth=3).encode(
-                    x=alt.X("month_name:N", title="Month", sort=month_order),
-                    y=alt.Y("revenue:Q", title="Sales Revenue (₹)"),
-                    tooltip=[
-                        alt.Tooltip("month_name:N", title="Month"),
-                        alt.Tooltip("revenue:Q", title="Revenue (₹)", format=",.2f")
-                    ],
-                ).properties(
-                    title=f"Monthly Sales Revenue - {selected_year}",
-                    height=300,
-                    width="container",
-                ).configure_axis(labelAngle=0)
-                st.altair_chart(chart, use_container_width=True, theme="streamlit")
+                if selected_month == "All months":
+                    chart = alt.Chart(trend).mark_bar(color="#4C78A8", cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                        x=alt.X("month_name:N", title="Month", sort=month_order),
+                        y=alt.Y("revenue:Q", title="Sales Revenue (₹)", axis=alt.Axis(format="~s")),
+                        tooltip=[
+                            alt.Tooltip("month_name:N", title="Month"),
+                            alt.Tooltip("revenue:Q", title="Revenue (₹)", format=",.2f")
+                        ],
+                    ).properties(
+                        title=f"Monthly Sales Revenue - {selected_year}",
+                        height=300,
+                        width="container",
+                    ).configure_axis(labelAngle=0)
+                    st.altair_chart(chart, use_container_width=True, theme="streamlit")
+                    st.caption("Click a month above to focus on that month’s income trend.")
+                else:
+                    monthly_detail = read_df(
+                        """
+                        SELECT DATE(s.sale_date) AS sale_day,
+                               SUM(s.quantity * s.sale_price) AS revenue
+                        FROM sales s
+                        WHERE YEAR(s.sale_date) = :year
+                          AND MONTH(s.sale_date) = :month_number
+                        GROUP BY DATE(s.sale_date)
+                        ORDER BY DATE(s.sale_date)
+                        """,
+                        {"year": selected_year, "month_number": month_order.index(selected_month) + 1},
+                    )
+
+                    if not monthly_detail.empty or True:
+                        monthly_detail["sale_day"] = pd.to_datetime(monthly_detail["sale_day"])
+
+                        full_month = []
+                        for day in range(1, 31):
+                            try:
+                                full_month.append(pd.Timestamp(year=selected_year, month=month_order.index(selected_month) + 1, day=day))
+                            except ValueError:
+                                continue
+
+                        full_month_df = pd.DataFrame({"sale_day": full_month})
+                        monthly_detail = full_month_df.merge(monthly_detail, on="sale_day", how="left")
+                        monthly_detail["revenue"] = monthly_detail["revenue"].fillna(0)
+
+                        detail_chart = alt.Chart(monthly_detail).mark_bar(color="#2E8B57", cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                            x=alt.X("sale_day:T", title="Day", axis=alt.Axis(format="%d")),
+                            y=alt.Y("revenue:Q", title=f"{selected_month} Income (₹)", axis=alt.Axis(format="~s")),
+                            tooltip=[
+                                alt.Tooltip("sale_day:T", title="Date", format="%b %d, %Y"),
+                                alt.Tooltip("revenue:Q", title="Revenue (₹)", format=",.2f")
+                            ],
+                        ).properties(
+                            title=f"{selected_month} Income Trend - {selected_year}",
+                            height=300,
+                            width="container",
+                        ).configure_axis(labelAngle=0)
+                        st.altair_chart(detail_chart, use_container_width=True, theme="streamlit")
+                    else:
+                        st.info(f"No sales found for {selected_month} in {selected_year}.")
             else:
                 st.info(f"No sales found for {selected_month.lower()} in {selected_year}.")
         except Exception as exc:
