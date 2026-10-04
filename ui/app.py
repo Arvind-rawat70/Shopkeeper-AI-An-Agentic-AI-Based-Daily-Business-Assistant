@@ -3,7 +3,7 @@ import re
 import json
 import sys
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 import pandas as pd
 import altair as alt
@@ -22,6 +22,26 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from chat_response_utils import build_direct_business_answer
+
+# Robust import of the centralized logger. Handle potential name shadowing
+try:
+    import database.logger as _db_logger
+    write_log = _db_logger.write_log
+    try:
+        _db_logger.init_db()
+    except Exception:
+        pass
+except Exception:
+    import importlib.util
+    logger_path = PROJECT_ROOT / "database" / "logger.py"
+    spec = importlib.util.spec_from_file_location("db_logger", str(logger_path))
+    _db_logger = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_db_logger)
+    write_log = getattr(_db_logger, "write_log")
+    try:
+        _db_logger.init_db()
+    except Exception:
+        pass
 
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "database" / ".env")
@@ -205,8 +225,18 @@ def validate_readonly_sql(sql):
 def ask_business_question(question):
     """Generate safe read-only SQL and return the matching rows as a DataFrame."""
     llm = get_llm()
+    # Log the incoming user question from the UI
+    try:
+        write_log(datetime.utcnow().isoformat(), "INFO", "ui_question", question, {"source": "ui"})
+    except Exception:
+        pass
     sql_response = llm.invoke(make_sql_prompt(question))
     sql = validate_readonly_sql(str(sql_response.content))
+    # Log the generated SQL
+    try:
+        write_log(datetime.utcnow().isoformat(), "INFO", "generated_sql", sql, {"source": "ui"})
+    except Exception:
+        pass
 
     # Use a read-only MySQL user for the app in production as an additional safeguard.
     result_df = read_df(sql)
@@ -214,6 +244,10 @@ def ask_business_question(question):
     direct_answer = build_direct_business_answer(question, result_df)
     if direct_answer:
         # For single-fact questions, do not expose the whole table or unrelated columns.
+        try:
+            write_log(datetime.utcnow().isoformat(), "INFO", "assistant_answer", direct_answer, {"source": "ui", "direct": True})
+        except Exception:
+            pass
         return direct_answer, sql, None
 
     # Summarize the result without asking the LLM to generate or execute more SQL.
@@ -240,6 +274,11 @@ Number of returned rows: {len(result_df)}
 Sample rows (at most 20): {json.dumps(sample, default=str, ensure_ascii=False)}
 """
     summary = llm.invoke(summary_prompt)
+    # Log the assistant summary/answer
+    try:
+        write_log(datetime.utcnow().isoformat(), "INFO", "assistant_answer", str(summary.content), {"source": "ui"})
+    except Exception:
+        pass
     return str(summary.content), sql, result_df
 
 
@@ -306,6 +345,10 @@ with st.sidebar:
                     "data": None,
                 }
             )
+            try:
+                write_log(datetime.utcnow().isoformat(), "ERROR", "ui_error", f"DB/LLM error: {exc}", {"source": "ui"})
+            except Exception:
+                pass
             st.error(str(exc))
         except Exception as exc:
             st.session_state.chat_history.append(
@@ -320,6 +363,10 @@ with st.sidebar:
                     "data": None,
                 }
             )
+            try:
+                write_log(datetime.utcnow().isoformat(), "ERROR", "ui_error", f"Answering error: {exc}", {"source": "ui"})
+            except Exception:
+                pass
         st.rerun()
 
     st.divider()

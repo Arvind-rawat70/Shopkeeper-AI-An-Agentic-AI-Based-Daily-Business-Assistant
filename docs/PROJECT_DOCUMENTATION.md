@@ -132,6 +132,89 @@ GROQ_MODEL=openai/gpt-oss-120b
 SHOPKEEPER_API_URL=http://127.0.0.1:8000
 ```
 
+## 16. Notifications (Email)
+
+The project can send scheduled business summaries by email using Gmail SMTP. The implementation uses `email_service.py` to build and send messages, helper scripts under `tools/` for testing and manual sends, and an APScheduler-based scheduler for automation.
+
+Files involved:
+- `email_service.py`: builds the plain-text report and sends email via SMTP.
+- `tools/_email_preview.py`: preview the generated email body.
+- `tools/_send_email.py`: send a single morning report from the CLI.
+- `tools/test_smtp_ssl.py`: quick SMTP SSL auth test.
+- `tools/email_scheduler.py`: scheduler that sends morning (07:00) and evening (17:00) reports.
+- `tools/run_scheduler.ps1`: PowerShell helper to start the scheduler detached.
+
+Environment variables (add to `.env`):
+
+```env
+EMAIL_SENDER=your_gmail_address@gmail.com
+EMAIL_PASSWORD=your_gmail_app_password     # 16-character app password
+OWNER_EMAIL=recipient@example.com
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=true
+EMAIL_DEBUG=false
+```
+
+Gmail notes and troubleshooting:
+- Use a Google App Password when 2‑Step Verification is enabled. Create one here: https://support.google.com/accounts/answer/185833
+- If Google blocks sign-in, try: https://accounts.google.com/DisplayUnlockCaptcha
+- Set `EMAIL_DEBUG=true` to enable smtplib debug output during troubleshooting.
+
+Quick commands:
+
+Preview the email body:
+```bash
+python tools/_email_preview.py
+```
+
+Test SMTP auth (SSL, port 465):
+```bash
+python tools/test_smtp_ssl.py
+```
+
+Send a single morning report now:
+```bash
+python tools/_send_email.py
+```
+
+Start the scheduler (07:00 and 17:00):
+```bash
+pip install -r requirements.txt
+python tools/email_scheduler.py
+# or on Windows detached:
+.\tools\run_scheduler.ps1
+```
+
+Logging and reliability:
+- The scheduler prints to stdout; run under a process manager or redirect output to a logfile for persistence.
+- The `send_email` function now supports `EMAIL_DEBUG` and raises clear errors for auth and connection issues.
+
+### How the Gmail notification flow works
+
+- The service reads SMTP configuration and credentials from environment variables (see the example above).
+- When a report is triggered (manual or scheduled), `email_service.build_daily_report()` gathers data via `database.tools` and formats a plain-text summary.
+- `email_service.send_email()` creates an `EmailMessage`, connects to Gmail's SMTP server (`smtp.gmail.com`) on the configured port, negotiates TLS (STARTTLS on port 587) or uses SSL (port 465), authenticates using the supplied credentials (recommended: a Google App Password), and issues the RFC‑2822 message transfer commands (`MAIL FROM`, `RCPT TO`, `DATA`).
+- The function includes optional debug output (`EMAIL_DEBUG=true`) which enables smtplib tracing for troubleshooting SMTP exchanges.
+
+### Challenges encountered while building Gmail notifications
+
+- Authentication restrictions: Google blocks simple username/password logins for many accounts. The supported pattern is 2‑Step Verification + App Passwords or OAuth2. Without an app password the server returns errors such as `535 BadCredentials` or `534 InvalidSecondFactor` and closes the connection.
+- Security blocks from Google: sign-ins from new locations or automated scripts may be blocked by Google account protections. This requires either an account unlock step or using an app password.
+- Connection reliability: transient network issues or abrupt server disconnects appear as `SMTPServerDisconnected`. Robust error handling and retries are required for production use.
+- Visibility and logging: smtplib default logging is minimal — enabling debug output helps, but for production you should log structured send attempts, responses and failures to a file or external logging service.
+- Secret management: storing app passwords in `.env` is convenient for local dev but not secure for production. Use a secrets manager (Vault, AWS Secrets Manager, Azure Key Vault) when deploying.
+- Delivery and rate limits: SMTP providers impose rate and daily sending limits. For higher volume or guaranteed deliverability, API-based providers (SendGrid, Mailgun, SES) are recommended.
+
+### Mitigations and recommendations
+
+- Use 2‑Step Verification and generate a Google App Password; set that value as `EMAIL_PASSWORD` in `.env` for CLI scripts and local runs.
+- For long‑running schedulers, run under a process manager (systemd, NSSM on Windows, or a container orchestration) so the scheduler restarts on failure.
+- Add retry logic with exponential backoff around `send_email()` and persist failed attempts to a queue or database for later replay.
+- Use structured logging and capture SMTP debug output to a log file when `EMAIL_DEBUG` is enabled.
+- For production deployments or higher volume, switch to an API-based transactional email provider and store credentials in a secrets manager.
+
+
 ## 6. Installation
 
 From the project root:

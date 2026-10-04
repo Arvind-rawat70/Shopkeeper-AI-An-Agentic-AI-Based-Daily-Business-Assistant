@@ -1,4 +1,10 @@
-from datetime import date
+from datetime import date, datetime
+from pathlib import Path
+import sys as _sys
+
+# Ensure project root is on sys.path when running this module directly
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_sys.path.insert(0, str(PROJECT_ROOT))
 from typing import Optional
 import sys
  
@@ -35,6 +41,27 @@ print(f"[INIT] Using model: {MODEL}")
 print("[INIT] All imports successful!", flush=True)
 
 import json
+# Import the logger module robustly. The workspace contains a module named
+# database.py which can shadow the database/ package, so try normal import
+# first and fall back to loading the file directly by path.
+try:
+    import database.logger as _db_logger
+    write_log = _db_logger.write_log
+    try:
+        _db_logger.init_db()
+    except Exception:
+        pass
+except Exception:
+    import importlib.util
+    logger_path = PROJECT_ROOT / "database" / "logger.py"
+    spec = importlib.util.spec_from_file_location("db_logger", str(logger_path))
+    _db_logger = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_db_logger)
+    write_log = getattr(_db_logger, "write_log")
+    try:
+        _db_logger.init_db()
+    except Exception:
+        pass
 
 
 def _safe_result(result):
@@ -49,11 +76,26 @@ def _safe_result(result):
     every tool's return value through this function avoids that.
     """
     if result is None or result == [] or result == {} or result == "":
-        return "No results found."
+        safe = "No results found."
+        try:
+            write_log(datetime.utcnow().isoformat(), "INFO", "tool_result", safe, {"preview": safe})
+        except Exception:
+            pass
+        return safe
     try:
-        return json.dumps(result, default=str)
+        out = json.dumps(result, default=str)
+        try:
+            write_log(datetime.utcnow().isoformat(), "INFO", "tool_result", out[:1000], {"len": len(out)})
+        except Exception:
+            pass
+        return out
     except TypeError:
-        return str(result)
+        out = str(result)
+        try:
+            write_log(datetime.utcnow().isoformat(), "INFO", "tool_result", out[:1000], {})
+        except Exception:
+            pass
+        return out
 
 
 # ---------------------------------------------------------------------
@@ -242,6 +284,13 @@ def chatbot_node(state:MessagesState):
         print("[DEBUG] Calling LLM with tools...", flush=True)
         response = llm_with_tools.invoke(messages)  # FIX: Use .invoke() instead of calling directly
         print("[DEBUG] LLM responded successfully", flush=True)
+        # log the AI response
+        try:
+            # response may be AIMessage or similar
+            content = response.content if hasattr(response, 'content') else str(response)
+            write_log(datetime.utcnow().isoformat(), "INFO", "chatbot_response", content[:2000], {"tokens_est": _approx_tokens(content)})
+        except Exception:
+            pass
     except Exception as e:
         error_str = str(e)
         # Check for model decommissioned error
