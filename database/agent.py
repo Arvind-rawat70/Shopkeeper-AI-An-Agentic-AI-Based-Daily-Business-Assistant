@@ -178,6 +178,10 @@ SYSTEM_PROMPT = SystemMessage(content=(
     "If a tool needs a product_id but the user only gave a product name, "
     "call get_product_by_name first to resolve it - if more than one match "
     "comes back, ask the user which one they mean instead of guessing.\n\n"
+    "Never dump raw tool output or long JSON arrays when the user asks for a "
+    "single fact such as a product name, stock count, supplier, or number. "
+    "If they ask for 'the name of the lowest stock item', answer with only the "
+    "matching product name and its current stock in one short sentence.\n\n"
     "Keep answers short, concrete, and business-focused - this is a busy "
     "shopkeeper, not a data scientist. Use rupee figures plainly (e.g. "
     "'₹4,250'), not raw JSON."
@@ -188,8 +192,52 @@ SYSTEM_PROMPT = SystemMessage(content=(
 #    calling tools (tools_condition routes to END when no tool call).
 # -----------------------------------------------------
 
+def _approx_tokens(text: str) -> int:
+    """Rough token estimate (~4 chars/token). Good enough for trimming
+    margin; Groq's free tier caps this model at 8000 tokens/minute, so we
+    keep history well under that rather than trying to be exact."""
+    return max(1, len(text) // 4)
+
+
+def _split_into_turns(messages):
+    """Group messages into turns, each starting at a HumanMessage and
+    including every AI/tool message that follows it. Trimming whole turns
+    (instead of individual messages) avoids leaving an orphaned ToolMessage
+    whose matching tool-calling AIMessage got cut - Groq rejects that."""
+    turns = []
+    current = []
+    for msg in messages:
+        if msg.__class__.__name__ == "HumanMessage" and current:
+            turns.append(current)
+            current = []
+        current.append(msg)
+    if current:
+        turns.append(current)
+    return turns
+
+
+def _trim_history(messages, max_tokens=3000):
+    """Keep only the most recent whole turns that fit under max_tokens.
+    Always keeps at least the most recent turn, even if it alone is large,
+    since we need something to respond to."""
+    turns = _split_into_turns(messages)
+    kept = []
+    total = 0
+    for turn in reversed(turns):
+        turn_tokens = sum(
+            _approx_tokens(m.content if isinstance(m.content, str) else str(m.content))
+            for m in turn
+        )
+        if total + turn_tokens > max_tokens and kept:
+            break
+        kept.insert(0, turn)
+        total += turn_tokens
+    return [m for turn in kept for m in turn]
+
+
 def chatbot_node(state:MessagesState):
-    messages = [SYSTEM_PROMPT] + state["messages"]
+    trimmed_history = _trim_history(state["messages"], max_tokens=3000)
+    messages = [SYSTEM_PROMPT] + trimmed_history
     try:
         print("[DEBUG] Calling LLM with tools...", flush=True)
         response = llm_with_tools.invoke(messages)  # FIX: Use .invoke() instead of calling directly

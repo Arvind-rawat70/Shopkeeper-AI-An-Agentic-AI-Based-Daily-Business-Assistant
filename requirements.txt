@@ -1,9 +1,13 @@
 python-dotenv
 
+APScheduler
+
 pandas
 numpy
 
 sqlalchemy
+sqlglot
+pymysql
 
 langchain
 langchain-core
