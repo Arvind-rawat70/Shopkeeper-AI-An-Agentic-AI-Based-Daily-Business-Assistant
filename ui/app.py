@@ -2,6 +2,7 @@ import os
 import re
 import json
 import sys
+import time
 from pathlib import Path
 from datetime import date, timedelta, datetime
 
@@ -225,6 +226,7 @@ def validate_readonly_sql(sql):
 def ask_business_question(question):
     """Generate safe read-only SQL and return the matching rows as a DataFrame."""
     llm = get_llm()
+    started_at = time.perf_counter()
     # Log the incoming user question from the UI
     try:
         write_log(datetime.utcnow().isoformat(), "INFO", "ui_question", question, {"source": "ui"})
@@ -245,7 +247,14 @@ def ask_business_question(question):
     if direct_answer:
         # For single-fact questions, do not expose the whole table or unrelated columns.
         try:
-            write_log(datetime.utcnow().isoformat(), "INFO", "assistant_answer", direct_answer, {"source": "ui", "direct": True})
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            write_log(
+                datetime.utcnow().isoformat(),
+                "INFO",
+                "assistant_answer",
+                direct_answer,
+                {"source": "ui", "direct": True, "response_time_ms": round(elapsed_ms, 2)},
+            )
         except Exception:
             pass
         return direct_answer, sql, None
@@ -274,9 +283,16 @@ Number of returned rows: {len(result_df)}
 Sample rows (at most 20): {json.dumps(sample, default=str, ensure_ascii=False)}
 """
     summary = llm.invoke(summary_prompt)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
     # Log the assistant summary/answer
     try:
-        write_log(datetime.utcnow().isoformat(), "INFO", "assistant_answer", str(summary.content), {"source": "ui"})
+        write_log(
+            datetime.utcnow().isoformat(),
+            "INFO",
+            "assistant_answer",
+            str(summary.content),
+            {"source": "ui", "response_time_ms": round(elapsed_ms, 2)},
+        )
     except Exception:
         pass
     return str(summary.content), sql, result_df

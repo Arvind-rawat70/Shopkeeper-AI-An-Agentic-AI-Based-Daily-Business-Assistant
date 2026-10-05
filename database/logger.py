@@ -30,10 +30,20 @@ def init_db():
     conn.close()
 
 
-def write_log(timestamp: str, level: str, source: Optional[str], message: str, meta: Optional[Dict[str, Any]] = None):
+def write_log(
+    timestamp: str,
+    level: str,
+    source: Optional[str],
+    message: str,
+    meta: Optional[Dict[str, Any]] = None,
+    response_time_ms: Optional[float] = None,
+):
     conn = _get_conn()
     cur = conn.cursor()
-    meta_json = json.dumps(meta or {})
+    final_meta = dict(meta or {})
+    if response_time_ms is not None:
+        final_meta["response_time_ms"] = response_time_ms
+    meta_json = json.dumps(final_meta)
     cur.execute(
         "INSERT INTO logs (timestamp, level, source, message, meta) VALUES (?, ?, ?, ?, ?)",
         (timestamp, level, source, message, meta_json),

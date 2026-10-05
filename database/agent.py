@@ -280,6 +280,7 @@ def _trim_history(messages, max_tokens=3000):
 def chatbot_node(state:MessagesState):
     trimmed_history = _trim_history(state["messages"], max_tokens=3000)
     messages = [SYSTEM_PROMPT] + trimmed_history
+    started_at = datetime.utcnow()
     try:
         print("[DEBUG] Calling LLM with tools...", flush=True)
         response = llm_with_tools.invoke(messages)  # FIX: Use .invoke() instead of calling directly
@@ -288,7 +289,14 @@ def chatbot_node(state:MessagesState):
         try:
             # response may be AIMessage or similar
             content = response.content if hasattr(response, 'content') else str(response)
-            write_log(datetime.utcnow().isoformat(), "INFO", "chatbot_response", content[:2000], {"tokens_est": _approx_tokens(content)})
+            elapsed_ms = (datetime.utcnow() - started_at).total_seconds() * 1000
+            write_log(
+                datetime.utcnow().isoformat(),
+                "INFO",
+                "chatbot_response",
+                content[:2000],
+                {"tokens_est": _approx_tokens(content), "response_time_ms": round(elapsed_ms, 2)},
+            )
         except Exception:
             pass
     except Exception as e:
