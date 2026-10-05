@@ -215,6 +215,71 @@ Logging and reliability:
 - For production deployments or higher volume, switch to an API-based transactional email provider and store credentials in a secrets manager.
 
 
+### 16.1 UI Chat Logging and Examples
+
+The Streamlit UI now persists chat interactions, the LLM-generated SQL, and assistant responses into the centralized SQLite log located at `database/logs.sqlite`. Each log row contains: `timestamp`, `level`, `source`, `message`, and a `meta` JSON object.
+
+Sample persisted UI assistant output (already stored in `logs.sqlite`):
+
+```
+Your estimated profit for this month is a loss of ₹21,839.14.
+
+revenueestimated_product_costgross_profitexpenses_total18838.5714484.414354.1626193.3
+
+View SQL used
+
+```
+
+```
+Show the top 10 selling products.
+
+Here are your top 10 best‑selling items:
+
+1. Mineral Water 1L – 536 units sold, generating about ₹11,677.07.
+2. Bread Loaf 400g – 525 units sold, with revenue of ₹23,561.26.
+3. Sunflower Oil 1L – 504 units sold, bringing in ₹92,785.55.
+4. Sugar 1kg – 493 units sold, amounting to ₹23,522.94.
+5. Toothpaste 100g – 471 units sold, worth ₹39,547.29.
+6. Wheat Flour 5kg – 468 units sold, total revenue ₹113,424.13.
+7. Salt 1kg – 463 units sold, for ₹10,091.91.
+8. Potato Chips 150g – 441 units sold, earning ₹13,192.39.
+9. Biscuits Pack – 441 units sold, with sales of ₹17,556.40.
+10. Toned Milk 1L – 420 units sold, generating ₹24,235.36.
+
+These products are driving the most sales right now.
+```
+
+How to view the logs:
+
+- Quick one-liner (prints recent entries):
+
+```bash
+python -c "from database.logger import read_logs; import json; print(json.dumps(read_logs(20), ensure_ascii=False, indent=2))"
+```
+
+- Use the included CLI helper:
+
+```bash
+python tools/log_cli.py --read --limit 20
+```
+
+- Programmatically from Python:
+
+```py
+from database.logger import read_logs
+logs = read_logs(50)
+```
+
+Notes:
+- UI-originated logs are written with `meta` containing `{"source": "ui"}` to distinguish them from CLI/agent logs.
+- If you want per-session or per-user tracking, add a `session_id` or `user_id` to the `meta` payload where `write_log()` is called in `ui/app.py`.
+- For convenience during local testing, run the Streamlit UI on a free port:
+
+```bash
+python -m streamlit run ui/app.py --server.port 8502
+```
+
+
 ## 6. Installation
 
 From the project root:
