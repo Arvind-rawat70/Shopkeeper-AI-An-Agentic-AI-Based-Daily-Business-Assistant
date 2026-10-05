@@ -1,3 +1,4 @@
+
 <img width="1852" height="912" alt="Screenshot 2026-10-01 223257" src="https://github.com/user-attachments/assets/74e98ba2-fae9-4345-9fdd-08b6e624eee3" />
 # 🛍️ Shopkeeper AI
 
@@ -627,6 +628,8 @@ Compared 5 models:
 - `models/demand_forecast_model.joblib` — saved best model (Ridge)
 
  ## 16. Notifications (Email)
+
+ <img width="1841" height="931" alt="Screenshot 2026-10-04 213830" src="https://github.com/user-attachments/assets/73c5b350-716d-4b7d-aca8-8161724d6307" />
 
 The project can send scheduled business summaries by email using Gmail SMTP. The implementation uses `email_service.py` to build and send messages, helper scripts under `tools/` for testing and manual sends, and an APScheduler-based scheduler for automation.
 
