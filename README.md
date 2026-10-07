@@ -1,4 +1,6 @@
+<img width="918" height="527" alt="Screenshot 2026-10-07 095035" src="https://github.com/user-attachments/assets/fa5903cb-ff1a-4b0e-99f5-f8af8f408f10" />
 
+## UI
 <img width="1852" height="912" alt="Screenshot 2026-10-01 223257" src="https://github.com/user-attachments/assets/74e98ba2-fae9-4345-9fdd-08b6e624eee3" />
 # 🛍️ Shopkeeper AI
 
